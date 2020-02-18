@@ -1,0 +1,1 @@
+{"zone": "us-central1-a", "state": "absent", "instance_names": ["my-test-instance1"], "changed": true, "failed": false}

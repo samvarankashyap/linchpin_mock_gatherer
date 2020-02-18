@@ -1,0 +1,238 @@
+---
+- hosts: localhost
+  tasks:
+  - name: debug
+    debug:
+      msg: "test message {{ credential_folder }}"
+  - name: set_fact
+    set_fact:
+      gcloud_cred_file: "{{ gcloud_cred_file | default('samvarangcloudcreds.json')  }}"
+      state: "{{ state | default('present')  }}"
+      file_format: "{{ file_format | default('json') }}"
+      gcloud_credential_folder: "{{ credential_folder | default('./credentials') }}"
+      data_output_folder: "{{ data_output_folder | default('/home/srallaba/workspace/lp_ws_backup/lp_ws/gather_mock_wp/mock_wp/aws/data_output_folder/') }}"
+  - name: parse from creds_folder
+    set_fact:
+      gcloud_creds: "{{ gcloud_credential_folder | parse_creds(gcloud_cred_file, file_format) }}"
+  - name: debug
+    debug:
+      msg: "{{ gcloud_creds }}"
+  - name: "create gce instance"
+    gce:
+      instance_names: my-test-instance1
+      zone: us-central1-a
+      machine_type: f1-micro
+      image_family: centos-7
+      state: present
+      service_account_email: "{{ gcloud_creds['client_email'] }}"
+      credentials_file: "{{ gcloud_credential_folder }}/{{gcloud_cred_file }}"
+      project_id: "{{ gcloud_creds['project_id']  }}"
+    register: mock_gce
+  - name: debug
+    debug:
+      msg: "{{ mock_gce | write_to_file(data_output_folder, 'gce.present') }}"
+  - name: "create gce instance"
+    gce:
+      instance_names: my-test-instance1
+      zone: us-central1-a
+      machine_type: f1-micro
+      image_family: centos-7
+      state: absent
+      service_account_email: "{{ gcloud_creds['client_email'] }}"
+      credentials_file: "{{ gcloud_credential_folder }}/{{gcloud_cred_file }}"
+      project_id: "{{ gcloud_creds['project_id']  }}"
+    register: mock_gce
+  - name: debug
+    debug:
+      msg: "{{ mock_gce | write_to_file(data_output_folder, 'gce.absent') }}"
+  - name: "create elastic ip"
+    gce_eip:
+      service_account_email: "{{ gcloud_creds['client_email'] }}"
+      credentials_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      project_id: "{{ gcloud_creds['project_id'] }}"
+      name: linchpintesteip
+      region: global
+      state: present
+    register: mock_gce_eip
+  - name: debug
+    debug:
+      msg: "{{ mock_gce_eip | write_to_file(data_output_folder, 'gce_eip.present') }}"
+  - name: "remove elastic ip"
+    gce_eip:
+      service_account_email: "{{ gcloud_creds['client_email'] }}"
+      credentials_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      project_id: "{{ gcloud_creds['project_id'] }}"
+      name: linchpintesteip
+      region: global
+       state: absent
+    register: mock_gce_eip
+  - name: debug
+    debug:
+      msg: "{{ mock_gce_eip | write_to_file(data_output_folder, 'gce_eip.absent') }}"
+  - name: create network
+    gce_net:
+      service_account_email: "{{ gcloud_creds['client_email'] }}"
+      credentials_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      project_id: "{{ gcloud_creds['project_id'] }}"
+      name: "linchpinautonet"
+      mode: auto
+      state: present
+    register: mock_gce_net
+  - name: debug
+    debug:
+      msg: "{{ mock_gce_net | write_to_file(data_output_folder, 'gce_net.present') }}"
+  - name: "delete network"
+    gce_net:
+      service_account_email: "{{ gcloud_creds['client_email'] }}"
+      credentials_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      project_id: "{{ gcloud_creds['project_id'] }}"
+      name: "linchpinautonet"
+      mode: auto
+      state: absent
+    register: mock_gce_net
+  - name: debug
+    debug:
+      msg: "{{ mock_gce_net | write_to_file(data_output_folder, 'gce_net.absent') }}"
+  - name: "create a network"
+    gcp_compute_network:
+      name: testlinchpincomputenet
+      auto_create_subnetworks: 'true'
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      state: present
+    register: mock_gcp_compute_network
+  - name: debug
+    debug:
+      msg: "{{ mock_gcp_compute_network | write_to_file(data_output_folder, 'mock_gcp_compute_network.present') }}"
+  - name: "create a router"
+    gcp_compute_router:
+      name: testlinchpinrouter
+      network: "{{ mock_gcp_compute_network }}"
+      bgp:
+        asn: 64514
+        advertise_mode: CUSTOM
+        advertised_groups:
+        - ALL_SUBNETS
+        advertised_ip_ranges:
+        - range: 1.2.3.4
+        - range: 6.7.0.0/16
+      region: us-central1
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      state: present
+    register: mock_gcp_compute_router
+  - name: debug
+    debug:
+      msg: "{{ mock_gcp_compute_router | write_to_file(data_output_folder, 'mock_gcp_compute_router.present') }}"
+  - name: "delete the router"
+    gcp_compute_router:
+      name: testlinchpinrouter
+      network: "{{ mock_gcp_compute_network }}"
+      bgp:
+        asn: 64514
+        advertise_mode: CUSTOM
+        advertised_groups:
+        - ALL_SUBNETS
+        advertised_ip_ranges:
+        - range: 1.2.3.4
+        - range: 6.7.0.0/16
+      region: us-central1
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      state: absent
+    register: mock_gcp_compute_router
+  - name: debug
+    debug:
+      msg: "{{ mock_gcp_compute_router | write_to_file(data_output_folder, 'mock_gcp_compute_router.absent') }}"
+  - name: get info on a network
+    gcp_compute_network_info:
+      filters:
+      - name = testlinchpincomputenet
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+    register: mock_gcp_compute_network_info
+  - name: debug
+    debug:
+      msg: "{{ mock_gcp_compute_network_info | write_to_file(data_output_folder, 'gcp_compute_network_info.present') }}"
+  - name: "delete network"
+    gcp_compute_network:
+      name: testlinchpincomputenet
+      auto_create_subnetworks: 'true'
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      state: absent
+    register: mock_gcp_compute_network
+  - name: debug
+    debug:
+      msg: "{{ mock_gcp_compute_network | write_to_file(data_output_folder, 'mock_gcp_compute_network.absent') }}"
+  - name: create a managed zone
+    gcp_dns_managed_zone:
+      name: linchpinmockmanagedzone
+      dns_name: linchpinmockmanagedzone.com.
+      description: linchpinmockmanagedzone
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      state: present
+    register: mock_gcp_dns_managed_zone
+  - debug:
+      msg: "{{ mock_gcp_dns_managed_zone | write_to_file(data_output_folder, 'gcp_dns_managed_zone.present') }}"
+  - name: get info on a managed zone
+    gcp_dns_managed_zone_info:
+      dns_name: linchpinmockmanagedzone.com.
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+    register: mock_gcp_dns_managed_zone_info
+  - debug:
+      msg: "{{ mock_gcp_dns_managed_zone_info | write_to_file(data_output_folder, 'gcp_dns_managed_zone_info.present') }}"
+  - name: create a resource record set
+    gcp_dns_resource_record_set:
+      name: linchpinmockmanagedzone.com.
+      managed_zone: "{{ mock_gcp_dns_managed_zone_info['resources'][0] }}"
+      type: A
+      ttl: 600
+      target:
+      - 10.1.2.3
+      - 40.5.6.7
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      state: present
+    register: mock_gcp_dns_resource_record_set
+  - debug:
+      msg: "{{ mock_gcp_dns_resource_record_set | write_to_file(data_output_folder, 'gcp_dns_resource_record_set.present') }}"
+  - name: delete a resource record set
+    gcp_dns_resource_record_set:
+      name: linchpinmockmanagedzone.com.
+      managed_zone: "{{ mock_gcp_dns_managed_zone }}"
+      type: A
+      ttl: 600
+      target:
+      - 10.1.2.3
+      - 40.5.6.7
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      state: absent
+    register: mock_gcp_dns_resource_record_set
+  - debug:
+      msg: "{{ mock_gcp_dns_resource_record_set | write_to_file(data_output_folder, 'gcp_dns_resource_record_set.absent') }}"
+  - name: delete managed zone
+    gcp_dns_managed_zone:
+      name: linchpinmockmanagedzone
+      dns_name: linchpinmockmanagedzone.com.
+      description: linchpinmockmanagedzone
+      project: "{{ gcloud_creds['project_id'] }}"
+      auth_kind: serviceaccount
+      service_account_file: "{{ gcloud_credential_folder }}/{{ gcloud_cred_file }}"
+      state: absent
+    register: mock_gcp_dns_managed_zone
+  - debug:
+      msg: "{{ mock_gcp_dns_managed_zone | write_to_file(data_output_folder, 'gcp_dns_managed_zone.absent') }}"
+

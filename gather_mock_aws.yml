@@ -1,0 +1,444 @@
+---
+- hosts: localhost
+  tasks:
+  - name: debug
+    debug:
+      msg: "test message {{ credential_folder }}"
+  - name: set_fact
+    set_fact:
+      aws_cred_file: "{{ aws_cred_file | default('aws.key')  }}"
+      state: "{{ state | default('present')  }}"
+      aws_profile: "{{ aws_profile | default('default') }}"
+      aws_file_format: "{{ aws_file_format | default('cfg') }}"
+      aws_credential_folder: "{{ credential_folder | default('./credentials') }}"
+      data_output_folder: "{{ data_output_folder | default('/home/srallaba/workspace/lp_ws_backup/lp_ws/gather_mock_wp/mock_wp/aws/data_output_folder/') }}"
+  - name: parse from creds_folder
+    set_fact:
+      aws_creds: "{{ aws_credential_folder | parse_creds(aws_cred_file, aws_file_format) }}"
+  - name: debug
+    debug:
+      msg: "{{ aws_creds['default'] }}"
+  - name: "This task creates an elastic ip"
+    cloudformation:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      stack_name: "ansible-cloudformationi-eip"
+      state: "{{ state | default('present')  }}"
+      region: "ca-central-1"
+      disable_rollback: true
+      template: "new.template"
+      tags:
+        Stack: "linchpin-cloud-mock"
+    register: mock_data_cfn
+  - name: "debug"
+    debug:
+      msg: "{{ mock_data_cfn | write_to_file(data_output_folder, 'cfn.'+state+'.output') }}"
+  - name: "Provision a ec2 keypair"
+    ec2_key:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      name: linchpin_mock_keypair
+      state: "{{ state | default('present')  }}"
+    register: mock_ec2_key
+  - name: "debug"
+    debug:
+      msg: "{{ mock_ec2_key | write_to_file(data_output_folder, 'ec2_key.'+state+'.output') }}"
+  - name: "create a elastic ip with module"
+    ec2_eip:
+      state: "present"
+      region: "ca-central-1"
+    register: mock_ec2_eip
+  - name: debug
+    debug: 
+      msg: "{{ mock_ec2_eip | write_to_file(data_output_folder, 'ec2_eip.present') }}"
+  - name: shell
+    include_vars:
+      file: "{{ data_output_folder }}/ec2_eip.present.output"
+      name: ec2_eip_data
+  - name: debug
+    debug:
+      msg: "{{ ec2_eip_data }}"
+  - name: delete the eip created 
+    ec2_eip:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      state: "absent"
+      public_ip: "{{ ec2_eip_data['public_ip'] }}"
+      region: "ca-central-1"
+      state: absent
+    register: mock_ec2_eip_absent
+  - name: debug
+    debug:
+      msg: "{{ mock_ec2_eip_absent | write_to_file(data_output_folder, 'ec2_eip.absent') }}"
+
+  - name: "create ec2 instance"
+    ec2:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      state: "present"
+      key_name: ec2_linchpin_keypair
+      instance_type: t2.micro
+      image: ami-000a5122ac0f9e2d9
+      wait: yes
+      count: 1
+      vpc_subnet_id: subnet-0b3ea75870306ae89
+      assign_public_ip: yes
+      region: "ca-central-1"
+      state: present
+    register: mock_ec2_present
+  - name: debug
+    debug:
+      msg: "{{ mock_ec2_present | write_to_file(data_output_folder, 'ec2.present') }}"
+  - name: "read provisioned instance"
+    include_vars:
+      file: "{{ data_output_folder }}/ec2.present.output"
+      name: ec2_data
+  - name: debug
+    debug:
+      msg: "{{ ec2_data }}"
+  - name: "delete ec2 instance"
+    ec2:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      state: "absent"
+      instance_ids: "{{ ec2_data['instance_ids'] }}"
+      wait: yes
+      count: 1
+      region: "ca-central-1"
+      state: absent
+    register: mock_ec2_absent
+  - name: debug
+    debug:
+      msg: "{{ mock_ec2_absent | write_to_file(data_output_folder, 'ec2.absent') }}"
+  - name: "Provision s3 bucket"
+    aws_s3:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      bucket: linchpinmocks3
+      mode: create
+      permission: public-read
+      region: "ca-central-1"
+    register: mock_s3_present
+  - name: "Debug of provisioned s3 bucket"
+    debug:
+      msg: "{{ mock_s3_present | write_to_file(data_output_folder, 's3.present') }}"
+  - name: "sleep for 2 seconds and continue with play"
+    wait_for:
+      timeout: 2
+  - name: "Delete s3 bucket"
+    aws_s3:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      bucket: linchpinmocks3
+      mode: delete
+      permission: public-read
+      region: "ca-central-1"
+    register: mock_s3_absent
+  - name: "Debug of provisioned s3 bucket"
+    debug:
+      msg: "{{ mock_s3_absent | write_to_file(data_output_folder, 's3.absent') }}"
+  - name: "Provision ec2 elb lb loadbalancer"
+    ec2_elb_lb:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      name: "linchpinec2elblb"
+      state: present
+      region: ca-central-1
+      listeners:
+      - protocol: http
+        load_balancer_port: 80
+        instance_port: 80
+      zones:
+      - ca-central-1a
+      - ca-central-1b
+      validate_certs: no
+    register: mock_ec2_elb_lb
+  - name: "Debug of provisioned ec2_elb_lb"
+    debug:
+      msg: "{{ mock_ec2_elb_lb | write_to_file(data_output_folder, 'ec2_elb_lb.present') }}"
+  - name: "sleep for 2 seconds and continue with play"
+    wait_for:
+      timeout: 2
+  - name: "Deprovision ec2 elb lb loadbalancer"
+    ec2_elb_lb:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      name: "linchpinec2elblb"
+      region: "ca-central-1"
+      state: absent
+      zones:
+      - ca-central-1a
+      listeners:
+      - protocol: http
+        load_balancer_port: 80
+        instance_port: 80
+      validate_certs: no
+    register: mock_ec2_elb_lb
+  - name: "Debug of loadbalancer"
+    debug:
+      msg: "{{ mock_ec2_elb_lb | write_to_file(data_output_folder, 'ec2_elb_lb.absent') }}"
+  - name: "create a VPC with dedicated tenancy and a couple of tags"
+    ec2_vpc_net:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      name: linchpin_default_vpc
+      cidr_block: 10.10.0.0/16
+      region: "ca-central-1"
+      state: "present"
+      tags:
+        module: ec2_vpc_net
+        this: works
+        lpname: linchpin_default_vpc
+      tenancy: dedicated
+    register: mock_ec2_vpc_net
+  # get mock data for ec2_vpc_net info module
+  - name: "Get ec2_vpc_net information"
+    ec2_vpc_net_info:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      region: "ca-central-1"
+      vpc_ids: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+    register: mock_ec2_vpc_net_info
+  # create a internet gateway
+  - name: create a internet gateway
+    ec2_vpc_igw:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      vpc_id: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+      state: present
+      region: "ca-central-1"
+    register: mock_ec2_vpc_igw
+  - name: "write data of mock_ec2_vpc_igw "
+    debug:
+      msg: "{{ mock_ec2_vpc_igw | write_to_file(data_output_folder, 'ec2_vpc_igw.present') }}"
+  - name: delete a internet gateway
+    ec2_vpc_igw:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      vpc_id: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+      state: absent
+      region: "ca-central-1"
+    register: mock_ec2_vpc_igw
+  - name: "write data of mock_ec2_vpc_igw "
+    debug:
+      msg: "{{ mock_ec2_vpc_igw | write_to_file(data_output_folder, 'ec2_vpc_igw.absent') }}"
+  # create a subnet 
+  - name: "Create subnet for database servers"
+    ec2_vpc_subnet:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      state: present
+      vpc_id: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+      cidr: 10.10.0.0/28
+      tags:
+        Name: Database Subnet
+    register: mock_ec2_vpc_subnet
+  - name: "get vpc_subnet_info mock data"
+    ec2_vpc_subnet_info:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      region: "ca-central-1"
+      subnet_ids: "{{ mock_ec2_vpc_subnet['subnet']['id'] }}"
+    register: mock_ec2_vpc_subnet_info
+  - name: "write data of mock_ec2_vpc_subnet_info "
+    debug:
+      msg: "{{ mock_ec2_vpc_subnet_info | write_to_file(data_output_folder, 'ec2_vpc_subnet_info.present') }}"
+  - name: "Write data of mock_ec2_group"
+    debug:
+      msg: "{{ mock_ec2_vpc_subnet | write_to_file(data_output_folder, 'ec2_vpc_subnet.present') }}"
+  - name: "Set up NAT-protected route table"
+    ec2_vpc_route_table:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      vpc_id: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+      region: "ca-central-1"
+      state: "present"
+      tags:
+        Name: Internal
+      subnets:
+      - "{{ mock_ec2_vpc_subnet['subnet']['id'] }}" 
+    register: mock_ec2_vpc_route_table
+ 
+  - name: "Create new vpc endpoint the default policy"
+    ec2_vpc_endpoint:
+      state: "present"
+      region: "ca-central-1"
+      vpc_id: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+      service: com.amazonaws.ca-central-1.s3
+      route_table_ids:
+      - "{{ mock_ec2_vpc_route_table['route_table']['id'] }}"
+    register: mock_ec2_vpc_endpoint
+
+  - name: "Write data of mock_ec2_vpc_endpoint"
+    debug:
+      msg: "{{ mock_ec2_vpc_endpoint | write_to_file(data_output_folder, 'ec2_vpc_endpoint.present') }}"
+
+  - name: "Delete vpc endpoint the default policy"
+    ec2_vpc_endpoint:
+      state: "absent"
+      region: "ca-central-1"
+      vpc_id: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+      service: com.amazonaws.ca-central-1.s3
+      vpc_endpoint_id: "{{ mock_ec2_vpc_endpoint['result']['vpc_endpoint_id'] }}"
+      route_table_ids:
+      - "{{ mock_ec2_vpc_route_table['route_table']['id'] }}"
+    register: mock_ec2_vpc_endpoint
+
+  - name: "Write data of mock_ec2_vpc_endpoint"
+    debug:
+      msg: "{{ mock_ec2_vpc_endpoint | write_to_file(data_output_folder, 'ec2_vpc_endpoint.absent') }}"
+
+  - name: "Get info of mock_ec2_vpc_route_table" 
+    ec2_vpc_route_table_info:
+      region: "ca-central-1"
+      filters:
+        route-table-id: "{{ mock_ec2_vpc_route_table['route_table']['id'] }}"
+    register: mock_ec2_vpc_route_table_info
+  - name: "Write data of mock_ec2_vpc_route_table"
+    debug:
+      msg: "{{ mock_ec2_vpc_route_table_info | write_to_file(data_output_folder, 'ec2_vpc_route_table_info.present') }}"
+  - name: "Write data of mock_ec2_vpc_route_table"
+    debug:
+      msg: "{{ mock_ec2_vpc_route_table | write_to_file(data_output_folder, 'ec2_vpc_route_table.present') }}"
+  - name: "Absent NAT-protected route table"
+    ec2_vpc_route_table:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      vpc_id: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+      region: "ca-central-1"
+      state: "absent"
+      tags:
+        Name: Internal
+      subnets:
+      - "{{ mock_ec2_vpc_subnet['subnet']['id'] }}"
+    register: mock_ec2_vpc_route_table
+  - name: "Write data of mock_ec2_vpc_route_table"
+    debug:
+      msg: "{{ mock_ec2_vpc_route_table | write_to_file(data_output_folder, 'ec2_vpc_route_table.absent') }}"
+  - name: "Write data of mock_ec2_group"
+    debug:
+      msg: "{{ mock_ec2_vpc_route_table | write_to_file(data_output_folder, 'mock_ec2_vpc_route_table.present') }}"
+
+  - name: "Remove subnet for database servers"
+    ec2_vpc_subnet:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      state: absent
+      vpc_id: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+      cidr: 10.10.0.0/28
+    register: mock_ec2_vpc_subnet
+
+  - name: "Write data of mock_ec2_group"
+    debug:
+      msg: "{{ mock_ec2_vpc_subnet | write_to_file(data_output_folder, 'ec2_vpc_subnet.absent') }}"
+
+  # create a security group for the vpc created 
+  - name: "Create a security group"
+    ec2_group:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      name: "mock_linchpin_ec2_group"
+      description: "sg with rule descriptions"
+      vpc_id: "{{ mock_ec2_vpc_net['vpc']['id'] }}"
+      region: "ca-central-1"
+      state: "present"
+      rules:
+      - proto: tcp
+        ports:
+        - 80
+        cidr_ip: 0.0.0.0/0
+        rule_desc: "allow all on port 80"
+    register: mock_ec2_group
+  - name: "Write data of mock_ec2_group"
+    debug:
+      msg: "{{ mock_ec2_group | write_to_file(data_output_folder, 'ec2_group.present') }}"
+  - name: "de provision the security group"
+    ec2_group:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      name: "mock_linchpin_ec2_group"
+      region: "ca-central-1"
+      group_id: "{{ mock_ec2_group['group_id'] }}"
+      state: "absent"
+    register: mock_ec2_group
+  - name: "Write data of mock_ec2_group"
+    debug:
+      msg: "{{ mock_ec2_group | write_to_file(data_output_folder, 'ec2_group.absent') }}"
+  - name: "Debug of provision vpc"
+    debug:
+      msg: "{{ mock_ec2_vpc_net_info | write_to_file(data_output_folder, 'ec2_vpc_net_info.present') }}"
+  - name: "Debug of provision vpc"
+    debug:
+      msg: "{{ mock_ec2_vpc_net | write_to_file(data_output_folder, 'ec2_vpc_net.present') }}"
+  - name: "Delete a VPC with dedicated tenancy and a couple of tags"
+    ec2_vpc_net:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      name: linchpin_default_vpc
+      cidr_block: 10.10.0.0/16
+      region: "ca-central-1"
+      state: absent
+      tags:
+        module: ec2_vpc_net
+        this: works
+        lpname: linchpin_default_vpc
+      tenancy: dedicated
+    register: mock_ec2_vpc_net
+  - name: "write response of deprovision vpc"
+    debug:
+      msg: "{{ mock_ec2_vpc_net | write_to_file(data_output_folder, 'ec2_vpc_net.absent') }}"
+  - name: create a public zone
+    route53_zone:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      zone: cilinchpinmock.com
+      comment: this is an example
+      state: present
+    register: mock_route53_zone
+  - name: debug for route53_zone
+    debug:
+      msg: "{{ mock_route53_zone | write_to_file(data_output_folder, 'route53_zone.present') }}"
+  - name: "Provisioning aws route53 module"
+    route53:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      state: present
+      zone: cilinchpinmock.com
+      record: new.cilinchpinmock.com
+      type: A
+      ttl: 7200
+      value: 1.1.1.1,2.2.2.2,3.3.3.3
+      overwrite: yes
+      wait: yes
+    register: mock_route53
+  - name: "write route53 mockdata"
+    debug:
+      msg: "{{ mock_route53 | write_to_file(data_output_folder, 'route53.present') }}"
+  - name: "deprovisioning aws route53 module"
+    route53:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      zone: cilinchpinmock.com
+      record: new.cilinchpinmock.com
+      type: A
+      ttl: 7200
+      value: 1.1.1.1,2.2.2.2,3.3.3.3
+      wait: yes
+      state: absent
+  - name: "write mock data"
+    debug:
+      msg: "{{ mock_route53 | write_to_file(data_output_folder, 'route53.absent') }}"
+  - name: delete a public zone
+    route53_zone:
+      aws_access_key: "{{ aws_creds['default']['aws_access_key_id'] }}"
+      aws_secret_key:  "{{ aws_creds['default']['aws_secret_access_key'] }}"
+      zone: cilinchpinmock.com
+      comment: this is an example
+      state: absent
+    register: mock_route53_zone
+  - name: "write mock data"
+    debug:
+      msg: "{{ mock_route53_zone | write_to_file(data_output_folder, 'route53_zone.absent') }}"
+
+
+

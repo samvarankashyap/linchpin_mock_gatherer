@@ -1,0 +1,209 @@
+---
+- hosts: localhost
+  tasks:
+  - name: debug
+    debug:
+      msg: "test message {{ credential_folder }}"
+  - name: set_fact
+    set_fact:
+      os_cred_file: "{{ os_cred_file | default('clouds.yaml')  }}"
+      state: "{{ state | default('present')  }}"
+      os_profile: "{{ os_profile | default('default') }}"
+      os_file_format: "{{ os_file_format | default('yaml') }}"
+      os_credential_folder: "{{ credential_folder | default('./credentials') }}"
+      data_output_folder: "{{ data_output_folder | default('/home/srallaba/workspace/lp_ws_backup/lp_ws/gather_mock_wp/mock_wp/aws/data_output_folder/') }}"
+  - name: parse from creds_folder
+    set_fact:
+      os_creds: "{{ os_credential_folder | parse_creds(os_cred_file, os_file_format) }}"
+  - name: debug
+    debug:
+      msg: "{{ os_creds['clouds']['default'] }}"
+  - name: "create an instance"
+    os_server:
+      state: present
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      name: ci-lp-cp-mock-instance
+      image: 'CentOS-7-x86_64-GenericCloud-1612'
+      key_name: 'linchpin'
+      flavor: 'm1.small'
+      auto_ip: yes
+      nics:
+        - net-name: 'provider_net_cci_6'
+    register: mock_os_server
+  - name: debug
+    debug:
+      msg: "{{ mock_os_server | write_to_file(data_output_folder, 'os_server.present') }}"
+  - name: create os_volume
+    os_volume:
+      state: present
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      size: 2
+      display_name: test_linchpin_mock_volume
+    register: mock_os_volume
+  - name: debug
+    debug:
+      msg: "{{ mock_os_volume | write_to_file(data_output_folder, 'os_volume.present') }}"
+  - name: attach volume to host
+    os_server_volume:
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      state: present
+      server: ci-lp-cp-mock-instance
+      volume: test_linchpin_mock_volume
+      device: /dev/vdb
+    register: mock_os_server_volume
+  - name: debug
+    debug:
+      msg: "{{ mock_os_server_volume | write_to_file(data_output_folder, 'os_server_volume.present') }}"
+  - name: attach volume to host
+    os_server_volume:
+      state: absent
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      server: ci-lp-cp-mock-instance
+      volume: test_linchpin_mock_volume
+      device: /dev/vdb
+    register: mock_os_server_volume
+  - name: debug
+    debug:
+      msg: "{{ mock_os_server_volume | write_to_file(data_output_folder, 'os_server_volume.absent') }}"
+  - name: delete os_volume
+    os_volume:
+      state: absent
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      size: 2
+      display_name: test_linchpin_mock_volume
+    register: mock_os_volume
+  - name: debug
+    debug:
+      msg: "{{ mock_os_volume | write_to_file(data_output_folder, 'os_volume.absent') }}"
+  - name: "Delete instance"
+    os_server:
+      state: absent
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      name: ci-lp-cp-mock-instance
+      image: 'CentOS-7-x86_64-GenericCloud-1612'
+      key_name: 'ci-factory'
+      flavor: 'm1.small'
+      auto_ip: yes
+    register: mock_os_server
+  - name: debug
+    debug:
+      msg: "{{ mock_os_server | write_to_file(data_output_folder, 'os_server.absent') }}"
+  - name: Create a keypair
+    os_keypair:
+      state: present
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      name: ansible_key_mock
+    register: mock_os_keypair
+  - name: debug
+    debug:
+      msg: "{{ mock_os_keypair | write_to_file(data_output_folder, 'os_keypair.present') }}"
+  - name: delete keypair
+    os_keypair:
+      state: absent
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      name: ansible_key_mock
+    register: mock_os_keypair
+  - name: debug
+    debug:
+      msg: "{{ mock_os_keypair | write_to_file(data_output_folder, 'os_keypair.absent') }}"
+  - name: create os_volume
+    os_volume:
+      state: present
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      size: 2
+      display_name: test_linchpin_mock_volume
+    register: mock_os_volume
+  - name: debug
+    debug:
+      msg: "{{ mock_os_volume | write_to_file(data_output_folder, 'os_volume.present') }}"
+  - name: delete os_volume
+    os_volume:
+      state: absent
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      size: 2
+      display_name: test_linchpin_mock_volume
+    register: mock_os_volume
+  - name: debug
+    debug:
+      msg: "{{ mock_os_volume | write_to_file(data_output_folder, 'os_volume.absent') }}"
+  - name: create os heat
+    os_stack:
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      name: "test_stack_linchpin"
+      tag: "linchpinteststack"
+      state: present
+      template: "os_stack.yml"
+    register: mock_os_stack
+  - name: debug
+    debug:
+      msg: "{{ mock_os_stack | write_to_file(data_output_folder, 'os_stack.present') }}"
+  - name: delete os heat
+    os_stack:
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      name: "test_stack_linchpin"
+      tag: "linchpinteststack"
+      state: absent
+      template: "os_stack.yml"
+    register: mock_os_stack
+  - name: debug
+    debug:
+      msg: "{{ mock_os_stack | write_to_file(data_output_folder, 'os_stack.absent') }}"
+  - name: create network
+    os_network:
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      state: present
+      name: linchpinmocknetwork
+    register: mock_os_network
+  - name: debug
+    debug:
+      msg: "{{ mock_os_network | write_to_file(data_output_folder, 'os_network.present') }}"
+  - name: create subnet
+    os_subnet:
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      state: present
+      network_name: linchpinmocknetwork
+      name: linchpinmocksubnet
+      cidr: 172.16.180.0/24
+      dns_nameservers:
+        - 8.8.8.8
+    register: mock_os_subnet
+  - name: debug
+    debug:
+      msg: "{{ mock_os_subnet | write_to_file(data_output_folder, 'os_subnet.present') }}"
+  - name: "create os_router"
+    os_router:
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      state: present
+      name: linchpinmockrouter
+    register: mock_os_router
+  - name: debug
+    debug:
+      msg: "{{ mock_os_router | write_to_file(data_output_folder, 'os_router.present') }}"
+  - name: "delete os_router"
+    os_router:
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      state: absent
+      name: linchpinmockrouter
+    register: mock_os_router
+  - name: debug
+    debug:
+      msg: "{{ mock_os_router | write_to_file(data_output_folder, 'os_router.absent') }}"
+  - name: delete subnet
+    os_subnet:
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      state: absent
+      name: linchpinmocksubnet
+    register: mock_os_subnet
+  - name: debug
+    debug:
+      msg: "{{ mock_os_subnet | write_to_file(data_output_folder, 'os_subnet.absent') }}"
+  - name: delete network
+    os_network:
+      auth: "{{ os_creds['clouds']['default']['auth'] }}"
+      state: absent
+      name: linchpinmocknetwork
+    register: mock_os_network
+  - name: debug
+    debug:
+      msg: "{{ mock_os_network | write_to_file(data_output_folder, 'os_network.absent') }}"
+
